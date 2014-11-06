@@ -36,9 +36,7 @@ from shadowsocks import common, lru_cache, eventloop
 
 CACHE_SWEEP_INTERVAL = 30
 
-VALID_HOSTNAME = re.compile(br"(?!-)[A-Z\d-]{1,63}(?<!-)$", re.IGNORECASE)
-
-common.patch_socket()
+VALID_HOSTNAME = re.compile(r"(?!-)[A-Z\d-]{1,63}(?<!-)$", re.IGNORECASE)
 
 # rfc1035
 # format
@@ -80,17 +78,17 @@ QCLASS_IN = 1
 
 
 def build_address(address):
-    address = address.strip(b'.')
-    labels = address.split(b'.')
+    address = address.strip('.')
+    labels = address.split('.')
     results = []
     for label in labels:
         l = len(label)
         if l > 63:
             return None
-        results.append(common.chr(l))
+        results.append(chr(l))
         results.append(label)
-    results.append(b'\0')
-    return b''.join(results)
+    results.append('\0')
+    return ''.join(results).encode('ascii')
 
 
 def build_request(address, qtype, request_id):
@@ -101,22 +99,23 @@ def build_request(address, qtype, request_id):
 
 
 def parse_ip(addrtype, data, length, offset):
+    ippart = data[offset:offset + length]
     if addrtype == QTYPE_A:
-        return socket.inet_ntop(socket.AF_INET, data[offset:offset + length])
+        return socket.inet_ntop(socket.AF_INET, ippart)
     elif addrtype == QTYPE_AAAA:
-        return socket.inet_ntop(socket.AF_INET6, data[offset:offset + length])
-    elif addrtype in [QTYPE_CNAME, QTYPE_NS]:
+        return socket.inet_ntop(socket.AF_INET6, ippart)
+    elif addrtype in (QTYPE_CNAME, QTYPE_NS):
         return parse_name(data, offset)[1]
     else:
-        return data[offset:offset + length]
+        return ippart.decode('ascii')
 
 
 def parse_name(data, offset):
     p = offset
     labels = []
-    l = common.ord(data[p])
+    l = ord(data[p:p+1])
     while l > 0:
-        if (l & (128 + 64)) == (128 + 64):
+        if (l & (0x80 | 0x40)) == (0x80 | 0x40):
             # pointer
             pointer = struct.unpack('!H', data[p:p + 2])[0]
             pointer &= 0x3FFF
@@ -124,12 +123,12 @@ def parse_name(data, offset):
             labels.append(r[1])
             p += 2
             # pointer is the end
-            return p - offset, b'.'.join(labels)
+            return p - offset, '.'.join(labels)
         else:
-            labels.append(data[p + 1:p + 1 + l])
+            labels.append(data[p + 1:p + 1 + l].decode('ascii'))
             p += 1 + l
-        l = common.ord(data[p])
-    return p - offset + 1, b'.'.join(labels)
+        l = ord(data[p:p+1])
+    return p - offset + 1, '.'.join(labels)
 
 
 # rfc1035
@@ -201,12 +200,12 @@ def parse_response(data):
             qds = []
             ans = []
             offset = 12
-            for i in range(0, res_qdcount):
+            for i in range(res_qdcount):
                 l, r = parse_record(data, offset, True)
                 offset += l
                 if r:
                     qds.append(r)
-            for i in range(0, res_ancount):
+            for i in range(res_ancount):
                 l, r = parse_record(data, offset)
                 offset += l
                 if r:
@@ -247,9 +246,9 @@ def is_ip(address):
 def is_valid_hostname(hostname):
     if len(hostname) > 255:
         return False
-    if hostname[-1] == b'.':
+    if hostname[-1] == '.':
         hostname = hostname[:-1]
-    return all(VALID_HOSTNAME.match(x) for x in hostname.split(b'.'))
+    return all(VALID_HOSTNAME.match(x) for x in hostname.split('.'))
 
 
 class DNSResponse(object):
@@ -259,7 +258,7 @@ class DNSResponse(object):
         self.answers = []  # each: (addr, type, class)
 
     def __str__(self):
-        return '%s: %s' % (self.hostname, str(self.answers))
+        return '%s: %s' % (self.hostname, self.answers)
 
 
 STATUS_IPV4 = 0
@@ -413,7 +412,7 @@ class DNSResolver(object):
 
     def _send_req(self, hostname, qtype):
         self._request_id += 1
-        if self._request_id > 32768:
+        if self._request_id > 0x8000:
             self._request_id = 1
         req = build_request(hostname, qtype, self._request_id)
         for server in self._servers:
@@ -426,11 +425,11 @@ class DNSResolver(object):
             callback(None, Exception('empty hostname'))
         elif is_ip(hostname):
             callback((hostname, hostname), None)
-        elif self._hosts.__contains__(hostname):
+        elif hostname in self._hosts:
             logging.debug('hit hosts: %s', hostname)
             ip = self._hosts[hostname]
             callback((hostname, ip), None)
-        elif self._cache.__contains__(hostname):
+        elif hostname in self._cache:
             logging.debug('hit cache: %s', hostname)
             ip = self._cache[hostname]
             callback((hostname, ip), None)

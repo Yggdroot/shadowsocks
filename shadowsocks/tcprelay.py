@@ -234,7 +234,7 @@ class TCPRelayHandler(object):
     def _handle_stage_hello(self, data):
         try:
             if self._is_local:
-                cmd = common.ord(data[1])
+                cmd = ord(data[1:2])
                 if cmd == CMD_UDP_ASSOCIATE:
                     logging.debug('UDP associate')
                     if self._local_sock.family == socket.AF_INET6:
@@ -261,8 +261,7 @@ class TCPRelayHandler(object):
             if header_result is None:
                 raise Exception('can not parse header')
             addrtype, remote_addr, remote_port, header_length = header_result
-            logging.info('connecting %s:%d' % (common.to_str(remote_addr),
-                                               remote_port))
+            logging.info('connecting %s:%d', remote_addr, remote_port)
             self._remote_address = (remote_addr, remote_port)
             # pause reading
             self._update_stream(STREAM_UP, WAIT_STATUS_WRITING)
